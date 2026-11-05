@@ -2,6 +2,8 @@
 
 View local Git history and file changes in Orca’s sidebar.
 
+![Git Graph for Orca — explore commits, follow branches, and review changes](assets/git-graph/cover.jpg)
+
 Requires Orca 1.4.248+ and Git.
 
 ## Use

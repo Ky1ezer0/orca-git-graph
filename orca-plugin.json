@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "git-graph",
   "name": "Git Graph",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Searchable, auto-refreshing Git graph with confirmed Git actions and one-click remote fetch for local Orca workspaces.",
   "engines": {
     "orca": ">=1.4.248"
@@ -41,5 +41,9 @@
         "frame": "isolated"
       }
     ]
+  },
+  "cover": {
+    "path": "assets/git-graph/cover.jpg",
+    "alt": "Git Graph for Orca with cyan, mint, and lavender branching commit paths on a dark background."
   }
 }
