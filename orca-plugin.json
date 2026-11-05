@@ -1,0 +1,45 @@
+{
+  "manifestVersion": 2,
+  "id": "git-graph",
+  "name": "Git Graph",
+  "version": "0.1.0",
+  "description": "Searchable, auto-refreshing Git graph with confirmed Git actions and one-click remote fetch for local Orca workspaces.",
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.mjs",
+  "capabilities": [
+    {
+      "kind": "workspace:read"
+    },
+    {
+      "kind": "storage:own"
+    }
+  ],
+  "contributes": {
+    "panels": [
+      {
+        "id": "git-graph",
+        "title": "Git Graph",
+        "icon": "branch",
+        "entry": "src/panel.html",
+        "ui": "html"
+      }
+    ],
+    "customEditors": [
+      {
+        "id": "git-graph-diff",
+        "title": "Git Graph Diff",
+        "extensions": [
+          ".git-graph-diff"
+        ],
+        "entry": "src/diff.html",
+        "priority": "default",
+        "contentKind": "text",
+        "frame": "isolated"
+      }
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+node_modules/
+.orca/
+
+# Git Graph launcher documents are local UI files.
+*.git-graph
+
+# Local snapshots, credentials and generated artifacts.
+*.git-graph-diff
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log

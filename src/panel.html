@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Git Graph</title>
+  <link rel="stylesheet" href="panel.css">
+  <script type="module" src="panel.mjs"></script>
+</head>
+<body>
+  <header class="toolbar">
+    <h1>Git Graph</h1>
+    <div class="control"><label for="workspace">Repository</label><select id="workspace" disabled><option>Loading workspaces…</option></select></div>
+    <div class="control"><label for="ref">History</label><select id="ref" disabled><option value="">All branches and tags</option></select></div>
+    <div class="toolbar-actions">
+      <div class="search-control" role="search">
+        <input id="search" type="search" aria-label="Search loaded commits" placeholder="Search commits…" title="Search loaded commits by message, author, hash, branch or tag" autocomplete="off">
+        <output id="search-count" for="search" aria-live="polite"></output>
+        <button id="search-prev" class="icon-button" type="button" aria-label="Previous match" title="Previous match (Shift+Enter)" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button>
+        <button id="search-next" class="icon-button" type="button" aria-label="Next match" title="Next match (Enter)" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+      </div>
+      <button id="pull" type="button" title="Fetch all remotes without merging or changing your working files" disabled>Pull</button>
+      <button id="refresh" class="icon-button" type="button" aria-label="Refresh" title="Refresh workspaces and history; local changes also refresh every 5 seconds while visible"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9"/></svg></button>
+      <button id="settings" class="icon-button" type="button" aria-label="Repository settings" title="Repository settings" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l.6 3 2.6 1.5 2.8-.9 3 5.2-2.2 2.1v3L24 19l-3 5.2-2.8-.9L15.6 25 15 28H9l-.6-3-2.6-1.7-2.8.9L0 19l2.2-2.1v-3L0 11.8l3-5.2 2.8.9L8.4 6Z" transform="translate(3 1) scale(.75)"/><circle cx="12" cy="12" r="3"/></svg></button>
+    </div>
+  </header>
+  <p id="status" class="status" role="status" aria-live="polite">Loading workspaces…</p>
+  <p id="notice" class="notice" hidden></p>
+  <div id="operation-bar" class="operation-bar" hidden><span id="operation-message"></span><button id="operation-continue" type="button">Continue</button><button id="operation-abort" type="button">Abort…</button></div>
+  <main id="history" aria-label="Commit history" aria-busy="true">
+    <div class="columns" role="group" aria-label="History columns"><span data-column="graph">Graph</span><span data-column="summary">Commit</span><span data-column="date">Date</span><span data-column="author">Author</span><span data-column="hash">Commit ID</span></div>
+    <div id="commits" role="list" aria-label="Commits, newest first"></div>
+    <p id="empty" class="empty" hidden></p>
+    <button id="more" class="more" type="button" hidden>Load older commits</button>
+  </main>
+  <section id="details" aria-label="Commit details" hidden>
+    <div class="detail-body">
+    <p id="detail-status" class="status" role="status"></p>
+    <div id="detail-content" hidden>
+      <div class="commit-info">
+        <dl class="commit-metadata">
+          <dt>Commit</dt><dd><code id="commit-id" class="commit-id"></code></dd>
+          <dt>Parents</dt><dd id="commit-parents"></dd>
+          <dt>Author</dt><dd id="commit-author"></dd>
+          <dt>Committer</dt><dd id="commit-committer"></dd>
+          <dt>Date</dt><dd id="commit-date"></dd>
+        </dl>
+        <pre id="message" class="message"></pre>
+        <p id="comparison" class="muted"></p>
+      </div>
+      <div class="changed-files">
+        <h2 id="file-heading">Changed files</h2>
+        <p class="muted file-hint">Select a file to view its diff.</p>
+        <ul id="files" aria-labelledby="file-heading"></ul>
+      </div>
+      <div id="diff-pane" class="diff-pane" hidden><p id="diff-status" class="status" role="status"></p><pre id="diff" tabindex="0" aria-label="File diff" hidden></pre></div>
+    </div>
+    </div>
+    <div class="detail-tools" role="group" aria-label="Commit actions">
+      <button id="close" class="icon-button" type="button" aria-label="Close commit details" title="Close (Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+      <button id="tree-view" class="icon-button" type="button" aria-label="Show file tree" aria-pressed="true" title="Tree view"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v14h5M4 8h5M13 8h7M13 18h7"/><rect x="9" y="6" width="4" height="4" rx="1"/><rect x="9" y="16" width="4" height="4" rx="1"/></svg></button>
+      <button id="list-view" class="icon-button" type="button" aria-label="Show flat file list" aria-pressed="false" title="List view"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg></button>
+    </div>
+  </section>
+  <div id="context-menu" class="context-menu" role="menu" aria-label="Commit actions" hidden></div>
+  <dialog id="action-dialog" aria-labelledby="action-title" aria-describedby="action-description">
+    <form id="action-form">
+      <h2 id="action-title"></h2>
+      <p id="action-description"></p>
+      <label id="action-name-label" for="action-name" hidden>Name<input id="action-name" type="text" maxlength="200" autocomplete="off"></label>
+      <label id="action-mode-label" for="action-mode" hidden>Reset mode<select id="action-mode"><option value="soft">Soft — keep changes staged</option><option value="mixed">Mixed — keep changes unstaged</option><option value="hard">Hard — discard changes from removed commits</option></select></label>
+      <label id="action-parent-label" for="action-parent" hidden>Mainline parent<select id="action-parent"></select></label>
+      <div class="dialog-buttons"><button id="action-cancel" type="button">Cancel</button><button id="action-submit" type="submit">Confirm</button></div>
+    </form>
+  </dialog>
+  <section id="settings-page" aria-labelledby="settings-title" hidden>
+    <header class="settings-header"><h1 id="settings-title">Repository Settings</h1><button id="settings-close" class="icon-button" type="button" aria-label="Close settings" title="Close settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
+    <p id="settings-repository" class="muted"></p>
+    <p id="settings-status" class="status" role="status"></p>
+    <div class="settings-scroll">
+      <form id="preferences-form">
+        <section class="settings-section"><h2>General</h2>
+          <label for="setting-layout">Commit row padding<select id="setting-layout"><option value="compact">Compact</option><option value="flexible">Flexible</option></select></label>
+          <label for="setting-diffView">Open file diffs in<select id="setting-diffView"><option value="main">Main panel — cache-backed snapshot</option><option value="inline">Inline — inside Git Graph</option></select></label>
+          <p class="setting-help">Main-panel snapshots live outside the repository. Orca may show the cache folder as a separate workspace. Click a file again to refresh its snapshot.</p>
+          <label for="setting-initialBranch">Initial branches<select id="setting-initialBranch"><option value="">Show all</option><option value="HEAD">Current branch / HEAD</option></select></label>
+          <label class="check-setting"><input id="setting-showStashes" type="checkbox">Show stashes</label>
+          <label class="check-setting"><input id="setting-showTags" type="checkbox">Show tags</label>
+          <label class="check-setting"><input id="setting-includeReflogs" type="checkbox">Include commits only mentioned by reflogs</label>
+          <p class="setting-help">Reflogs can include local recovery and checkpoint commits. Nothing is restored or changed.</p>
+          <label class="check-setting"><input id="setting-firstParent" type="checkbox">Only follow the first parent of commits</label>
+        </section>
+        <section class="settings-section"><h2>Issue Linking</h2>
+          <p class="setting-help">Add a prefix and HTTPS URL for each issue tracker. For example, # matches #123 and PROJ- matches PROJ-123. Prefixes are case-sensitive; {issue} is the number without the prefix.</p>
+          <div id="issue-links"></div><button id="issue-link-add" type="button">Add issue link</button>
+          <p class="setting-help">Use {issue} in each URL, such as https://example.com/browse/PROJ-{issue}. Remove all rules to disable links.</p>
+        </section>
+      </form>
+      <section class="settings-section"><h2>User Details</h2><dl id="settings-user" class="settings-user"></dl><p class="setting-help">Effective Git identity. Edits and removal affect repository-local overrides only, never global configuration.</p><div class="setting-buttons"><button id="identity-edit" type="button">Edit…</button><button id="identity-remove" type="button">Remove local override…</button></div></section>
+      <section class="settings-section"><h2>Remote Configuration</h2><div id="settings-remotes"></div><button id="remote-add" type="button">Add remote…</button><p class="setting-help">Changes apply only after confirmation. Removing a remote also removes its remote-tracking references. No automatic network requests.</p></section>
+    </div>
+    <footer class="settings-footer"><span class="muted">Changes apply and save automatically per repository.</span></footer>
+  </section>
+  <dialog id="config-dialog" aria-labelledby="config-title">
+    <form id="config-form"><h2 id="config-title"></h2><p id="config-description"></p>
+      <div id="config-identity"><label>User name<input id="config-user-name" maxlength="200"></label><label>Email<input id="config-user-email" type="email" maxlength="200"></label></div>
+      <div id="config-remote"><label>Remote name<input id="config-remote-name" maxlength="100"></label><label>Fetch URL<input id="config-fetch-url" maxlength="2048"></label><label>Push URL (optional)<input id="config-push-url" maxlength="2048" placeholder="Same as fetch URL"></label></div>
+      <p id="config-status" class="status" role="status"></p><div class="dialog-buttons"><button id="config-cancel" type="button">Cancel</button><button id="config-submit" type="submit">Confirm change</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

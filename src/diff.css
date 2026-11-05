@@ -1,0 +1,8 @@
+.diff-editor header { display: flex; gap: 16px; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.diff-editor h1 { overflow-wrap: anywhere; }
+.diff-editor #metadata, .diff-editor #diff-notice { padding: 6px 16px; overflow-wrap: anywhere; font-size: 12px; }
+.diff-editor #diff-notice:empty { display: none; }
+.diff-editor #patch { flex: 1; min-height: 0; overflow: auto; padding: 8px 0; }
+.patch-line { display: flex; min-width: max-content; font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; tab-size: 4; }
+.patch-number { display: inline-block; width: 5em; flex: none; text-align: right; padding-right: 12px; color: var(--muted); user-select: none; }
+.patch-code { padding: 0 16px; }
