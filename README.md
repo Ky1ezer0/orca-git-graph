@@ -19,3 +19,7 @@ Search commits, select a commit to review files, or right-click for Git actions.
 - File diffs open as cached snapshots outside the repository and may open a separate workspace. Click the file again to refresh, or select **Settings → Open file diffs in → Inline**.
 - Cached patches may contain sensitive content and remain until deleted. Close diff tabs before clearing the `Orca/Git Graph Diffs` folder in your operating system’s cache directory.
 - The plugin runs with your account’s access. Use trusted repositories. Windows and Linux have not been verified.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
