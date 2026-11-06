@@ -1,37 +1,46 @@
-import { mkdir, writeFile, rename, rm, realpath } from 'node:fs/promises';
-import { join, resolve, relative, isAbsolute, dirname, basename } from 'node:path';
-import { homedir, platform } from 'node:os';
+import { mkdir, writeFile, rename, rm, realpath, lstat, open } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { join, resolve, dirname } from 'node:path';
+import { platform } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { git, readDiff, readWorkingDiff } from './git.mjs';
 
 const exec = promisify(execFile);
-export const cacheDirectory = join(platform() === 'darwin' ? join(homedir(), 'Library', 'Caches') : platform() === 'win32' ? process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local') : process.env.XDG_CACHE_HOME || join(homedir(), '.cache'), 'Orca', 'Git Graph Diffs');
-
-export async function cacheDiff(path, { hash, file }, signal, directory = cacheDirectory) {
+export async function cacheDiff(path, { hash, file }, signal) {
   const root = (await git(path, ['rev-parse', '--show-toplevel'], { signal })).replace(/\r?\n$/, '');
   const result = hash === 'working-tree' ? await readWorkingDiff(path, file, signal) : await readDiff(path, hash, file, signal);
   signal?.throwIfAborted();
   const actualRoot = await realpath(root);
-  function outside(candidate) {
-    const rel = relative(actualRoot, candidate);
-    if (!rel || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + (platform() === 'win32' ? '\\' : '/')))) throw new Error('The diff cache must be outside the repository.');
+  const cachePath = '.orca/git-graph-diffs/';
+  if (await git(actualRoot, ['ls-files', '--', cachePath], { signal })) {
+    throw new Error('The diff cache contains tracked files. Choose Inline in settings instead.');
   }
-  // Resolve existing ancestors before creating anything, including symlinked cache parents.
-  let ancestor = resolve(directory), missing = [];
-  for (;;) {
-    try { outside(resolve(await realpath(ancestor), ...missing)); break; }
-    catch (error) {
-      if (error.code !== 'ENOENT' || dirname(ancestor) === ancestor) throw error;
-      missing.unshift(basename(ancestor)); ancestor = dirname(ancestor);
-    }
+  // Reject redirected cache directories rather than writing snapshots outside this project.
+  for (const directory of [join(actualRoot, '.orca'), resolve(actualRoot, cachePath)]) {
+    try { await mkdir(directory, { mode: 0o700 }); }
+    catch (error) { if (error.code !== 'EEXIST') throw error; }
+    if (!(await lstat(directory)).isDirectory()) throw new Error('The diff cache must use real directories, not symlinks.');
   }
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  const actualDirectory = await realpath(directory); outside(actualDirectory);
+  const actualDirectory = resolve(actualRoot, cachePath);
+  // Git resolves info/exclude correctly for linked worktrees, too; never edit .gitignore.
+  const excludePath = resolve(actualRoot, (await git(actualRoot, ['rev-parse', '--git-path', 'info/exclude'], { signal })).replace(/\r?\n$/, ''));
+  await mkdir(dirname(excludePath), { recursive: true });
+  const exclude = await open(excludePath, constants.O_RDWR | constants.O_CREAT | constants.O_APPEND | constants.O_NOFOLLOW, 0o600);
+  try {
+    if (!(await exclude.stat()).isFile()) throw new Error('Git info/exclude must be a regular file.');
+    const contents = await exclude.readFile('utf8');
+    const rule = '/' + cachePath;
+    if (!contents.split(/\r?\n/).includes(rule)) await exclude.writeFile((contents && !contents.endsWith('\n') ? '\n' : '') + rule + '\n');
+  } finally { await exclude.close(); }
   const key = createHash('sha256').update(JSON.stringify([actualRoot, hash, file])).digest('hex');
   const name = file.split('/').at(-1).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 70) || 'file';
   const target = resolve(actualDirectory, name + '-' + key.slice(0, 20) + '.git-graph-diff');
+  if (!(await git(actualRoot, ['--no-literal-pathspecs', 'check-ignore', '--', target], { signal, allowMissing: true }))) {
+    throw new Error('Git ignore rules expose the diff cache. Choose Inline in settings instead.');
+  }
+  signal?.throwIfAborted();
   const temporary = target + '.' + randomUUID() + '.tmp';
   const snapshot = { version: 1, repository: actualRoot, file, revision: hash, capturedAt: new Date().toISOString(), ...result };
   try {
@@ -75,5 +84,5 @@ export async function openCachedDiff(path, input, signal) {
     try { message = JSON.parse(error.stdout).error?.message || message; } catch {}
     throw new Error('Could not open the main-panel diff: ' + message + ' Choose Inline in settings to view it in the sidebar.');
   }
-  return { opened: true, message: 'Opened read-only diff in the main panel. The snapshot is cached outside your repository.' };
+  return { opened: true, message: 'Opened read-only diff in the main panel. The snapshot is cached in .orca/git-graph-diffs/ and excluded from Git.' };
 }

@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, mkdir, writeFile, readFile, rm, stat, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, stat, symlink, realpath, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { cacheDiff, orcaCommand, diffPluginKey } from './diff-cache.mjs';
 import { preferences, defaults, linkUrl, findIssueLinks } from './preferences.mjs';
 import { readConfiguration, changeConfiguration, readPreferences, savePreferences, settingsKey } from './repository-settings.mjs';
@@ -145,32 +145,76 @@ test('cached diffs target the installed publisher and refuse ambiguous installat
 });
 
 test('cache snapshots preserve exact committed and working diffs without dirtying repositories', async t => {
-  const r = await repo(t), directory = await mkdtemp(join(tmpdir(), 'graph-diff-cache-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  const r = await repo(t);
+  const excludePath = join(r.path, '.git', 'info', 'exclude');
+  await writeFile(excludePath, '# Keep existing rules\nlocal-only');
   const file = 'odd\tname.txt'; await r.file(file, 'old\n'); const root = await r.commit('root');
   await r.file(file, 'new\n'); const hash = await r.commit('change');
   const input = { hash, file };
-  const first = await cacheDiff(r.path, input, undefined, directory);
+  const first = await cacheDiff(r.path, input);
+  assert.equal(dirname(first), join(await realpath(r.path), '.orca', 'git-graph-diffs'));
+  assert.equal((await stat(dirname(first))).mode & 0o777, 0o700);
   assert.equal((await stat(first)).mode & 0o777, 0o600);
   const value = JSON.parse(await readFile(first, 'utf8'));
   assert.match(value.text, /-old/); assert.match(value.text, /\+new/); assert.equal(value.file, file);
-  assert.equal(first, await cacheDiff(r.path, input, undefined, directory));
+  assert.equal(first, await cacheDiff(r.path, input));
   assert.equal(await r.git('status', '--porcelain'), '');
   await r.file(file, 'dirty\n'); const before = await r.git('status', '--porcelain');
-  const working = await cacheDiff(r.path, { hash: 'working-tree', file }, undefined, directory);
+  const working = await cacheDiff(r.path, { hash: 'working-tree', file });
   assert.match(JSON.parse(await readFile(working, 'utf8')).text, /\+dirty/);
-  await r.file(file, 'changed again\n'); assert.equal(working, await cacheDiff(r.path, { hash: 'working-tree', file }, undefined, directory));
+  await r.file(file, 'changed again\n'); assert.equal(working, await cacheDiff(r.path, { hash: 'working-tree', file }));
   assert.match(JSON.parse(await readFile(working, 'utf8')).text, /changed again/);
   assert.equal(await r.git('status', '--porcelain'), before);
-  const rootFile = await cacheDiff(r.path, { hash: root, file }, undefined, directory); assert.match(JSON.parse(await readFile(rootFile, 'utf8')).text, /\+old/);
-  await assert.rejects(cacheDiff(r.path, { hash, file: '../outside' }, undefined, directory), /Select a file/);
-  await assert.rejects(cacheDiff(r.path, input, undefined, r.path), /outside/);
-  await assert.rejects(cacheDiff(r.path, input, undefined, join(r.path, 'cache', 'nested')), /outside/);
-  await assert.rejects(stat(join(r.path, 'cache')), { code: 'ENOENT' });
-  const abort = new AbortController(); abort.abort(); await assert.rejects(cacheDiff(r.path, input, abort.signal, directory));
-  await symlink(r.path, join(directory, 'redirect')); await assert.rejects(cacheDiff(r.path, input, undefined, join(directory, 'redirect')), /outside/);
-  await assert.rejects(cacheDiff(r.path, input, undefined, join(directory, 'redirect', 'cache')), /outside/);
-  await assert.rejects(stat(join(r.path, 'cache')), { code: 'ENOENT' });
+  const rootFile = await cacheDiff(r.path, { hash: root, file }); assert.match(JSON.parse(await readFile(rootFile, 'utf8')).text, /\+old/);
+  await assert.rejects(cacheDiff(r.path, { hash, file: '../outside' }), /Select a file/);
+  await mkdir(join(r.path, 'nested'));
+  assert.equal(first, await cacheDiff(join(r.path, 'nested'), input));
+  assert.equal(await readFile(excludePath, 'utf8'), '# Keep existing rules\nlocal-only\n/.orca/git-graph-diffs/\n');
+  await r.git('add', '--all');
+  assert.equal(await r.git('ls-files', '--', '.orca/git-graph-diffs/'), '');
+  await r.file('.orca/other-setting', 'not hidden');
+  assert.match(await r.git('status', '--porcelain', '--untracked-files=all'), /other-setting/);
+  const abort = new AbortController(); abort.abort();
+  await assert.rejects(cacheDiff(r.path, input, abort.signal));
+
+});
+
+test('cache snapshots use the linked worktree and preserve its Git status', async t => {
+  const r = await repo(t); await r.file('a', 'root'); const hash = await r.commit('root');
+  const worktree = join(r.path, 'linked');
+  await r.git('worktree', 'add', '-b', 'linked', worktree);
+  const before = await r.git('-C', worktree, 'status', '--porcelain');
+  const target = await cacheDiff(worktree, { hash, file: 'a' });
+  assert.equal(dirname(target), join(await realpath(worktree), '.orca', 'git-graph-diffs'));
+  assert.equal(await r.git('-C', worktree, 'status', '--porcelain'), before);
+  assert.equal(await r.git('-C', worktree, 'check-ignore', '--', target), target);
+  assert.match(await readFile(join(r.path, '.git', 'info', 'exclude'), 'utf8'), /\/\.orca\/git-graph-diffs\//);
+});
+
+test('cache refuses symlinked directories without writing to their destination', async t => {
+  for (const parent of ['.orca', '.orca/git-graph-diffs']) {
+    const r = await repo(t); await r.file('a', 'root'); const hash = await r.commit('root');
+    const destination = await mkdtemp(join(tmpdir(), 'graph-cache-redirect-'));
+    t.after(() => rm(destination, { recursive: true, force: true }));
+    if (parent.includes('/')) await mkdir(join(r.path, '.orca'));
+    await symlink(destination, join(r.path, parent));
+    await assert.rejects(cacheDiff(r.path, { hash, file: 'a' }), /real directories/);
+    assert.deepEqual(await readdir(destination), []);
+  }
+});
+
+test('cache refuses tracked contents and ignore overrides before writing snapshots', async t => {
+  const r = await repo(t); await r.file('a', 'root'); const hash = await r.commit('root');
+  const directory = join(r.path, '.orca', 'git-graph-diffs');
+  await mkdir(directory, { recursive: true });
+  const existing = join(directory, 'keep'); await writeFile(existing, 'keep');
+  await r.git('add', '--force', '--', '.orca/git-graph-diffs/keep');
+  await assert.rejects(cacheDiff(r.path, { hash, file: 'a' }), /tracked files/);
+  assert.equal(await readFile(existing, 'utf8'), 'keep');
+  await r.git('reset', '--', '.orca/git-graph-diffs/keep');
+  await r.file('.gitignore', '!.orca/git-graph-diffs/\n!.orca/git-graph-diffs/**\n');
+  await assert.rejects(cacheDiff(r.path, { hash, file: 'a' }), /ignore rules/);
+  assert.deepEqual(await readdir(directory), ['keep']);
 });
 
 test('new worker endpoints authorize workspace IDs and apply stored history settings', async t => {

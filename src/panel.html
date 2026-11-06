@@ -82,7 +82,7 @@
         <section class="settings-section"><h2>General</h2>
           <label for="setting-layout">Commit row padding<select id="setting-layout"><option value="compact">Compact</option><option value="flexible">Flexible</option></select></label>
           <label for="setting-diffView">Open file diffs in<select id="setting-diffView"><option value="main">Main panel — cache-backed snapshot</option><option value="inline">Inline — inside Git Graph</option></select></label>
-          <p class="setting-help">Main-panel snapshots live outside the repository. Orca may show the cache folder as a separate workspace. Click a file again to refresh its snapshot.</p>
+          <p class="setting-help">Main-panel snapshots stay in this project’s .orca/git-graph-diffs/ folder, locally excluded from Git. Click a file again to refresh its snapshot.</p>
           <label for="setting-initialBranch">Initial branches<select id="setting-initialBranch"><option value="">Show all</option><option value="HEAD">Current branch / HEAD</option></select></label>
           <label class="check-setting"><input id="setting-showStashes" type="checkbox">Show stashes</label>
           <label class="check-setting"><input id="setting-showTags" type="checkbox">Show tags</label>

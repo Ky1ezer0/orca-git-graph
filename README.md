@@ -18,8 +18,8 @@ Search commits, select a commit to review files, or right-click for Git actions.
 ## Notes
 
 - Context-menu changes require confirmation. Checkout detaches HEAD; Rebase, Drop, and Reset rewrite history.
-- File diffs open as cached snapshots outside the repository and may open a separate workspace. Click the file again to refresh, or select **Settings → Open file diffs in → Inline**.
-- Cached patches may contain sensitive content and remain until deleted. Close diff tabs before clearing the `Orca/Git Graph Diffs` folder in your operating system’s cache directory.
+- File diffs open as cached snapshots in `.orca/git-graph-diffs/` inside the original project. The plugin adds a local Git exclusion in `info/exclude`, without changing `.gitignore`. Click the file again to refresh, or select **Settings → Open file diffs in → Inline**.
+- Cached patches may contain sensitive content and remain until deleted. Close diff tabs before clearing the project’s `.orca/git-graph-diffs/` folder. Older snapshots in `Orca/Git Graph Diffs` in your operating system’s cache directory are not moved or deleted.
 - The plugin runs with your account’s access. Use trusted repositories. Windows and Linux have not been verified.
 
 ## License
