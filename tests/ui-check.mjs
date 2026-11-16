@@ -16,6 +16,19 @@ await page.addInitScript({content:await readFile(root+'/tests/ui-fixture.js','ut
 await page.addInitScript(()=>{window.__version=0;window.__operation='';const original=window.orca.plugin.request;window.orca.plugin.request=async(name,input,options)=>{if(options?.timeoutMs>120000)throw Error('timeoutMs exceeds Orca limit');JSON.stringify(input,(_key,value)=>{if(value===undefined)throw Error('input: Invalid input');return value;});if(name==='action'){window.__requests.push({name,input});if(window.__fail)throw Error('Resolve conflicts');window.__version++;return {message:'Action done'};}const result=await original(name,input);if(name==='history'){result.snapshot='fixture'+window.__version;result.workingSnapshot=String(window.__dirty)+window.__version;result.operation=window.__operation;}return result;};});
 await page.goto('http://127.0.0.1:'+server.address().port+'/src/panel.html');
 await page.waitForSelector('.commit');
+// Shared branch preferences must not break repositories without that branch.
+await page.evaluate(() => { __preferences.initialBranch = 'refs/heads/another-project'; });
+await page.locator('#refresh').click();
+await page.waitForSelector('#refresh:enabled');
+assert.equal(await page.locator('#ref').inputValue(), '');
+assert.equal(await page.evaluate(() => __preferences.initialBranch), 'refs/heads/another-project');
+await page.evaluate(() => { __preferences.initialBranch = 'HEAD'; });
+await page.locator('#refresh').click();
+await page.waitForFunction(() => document.querySelector('#ref').value === 'HEAD' && !document.querySelector('#refresh').disabled);
+await page.evaluate(() => { __preferences.initialBranch = ''; });
+await page.locator('#refresh').click();
+await page.waitForSelector('#refresh:enabled');
+
 const grouped = page.locator('.ref.grouped');
 assert.equal(await grouped.count(),1);
 assert.equal(await grouped.locator('.ref-name').textContent(),'feature/graph-inline-details');

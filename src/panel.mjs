@@ -614,8 +614,12 @@ async function loadWorkspace() {
     const value = await request('preferences', { workspaceId }, new AbortController());
     if (ui.workspace.value !== workspaceId) return;
     prefs = { ...defaults, ...value }; applyRowLayout();
-    ui.ref.replaceChildren(new Option(prefs.initialBranch || 'All branches and tags', prefs.initialBranch));
+    ui.ref.replaceChildren(new Option('All branches and tags', ''));
     await loadHistory();
+    if (ui.workspace.value === workspaceId && prefs.initialBranch && [...ui.ref.options].some(option => option.value === prefs.initialBranch)) {
+      ui.ref.value = prefs.initialBranch;
+      await loadHistory();
+    }
   } catch (error) { setBusy(false); status(ui.status, error.message, true); }
 }
 setupSettings({
@@ -625,7 +629,7 @@ setupSettings({
   onSave: async value => {
     const previous = prefs; prefs = value; applyRowLayout();
     if (['initialBranch', 'showTags', 'showStashes', 'includeReflogs', 'firstParent'].some(key => previous[key] !== value[key])) {
-      if (previous.initialBranch !== value.initialBranch) ui.ref.replaceChildren(new Option(value.initialBranch || 'All branches', value.initialBranch));
+      if (previous.initialBranch !== value.initialBranch) ui.ref.value = [...ui.ref.options].some(option => option.value === value.initialBranch) ? value.initialBranch : '';
       await loadHistory();
     } else {
       const scroll = ui.history.scrollTop;

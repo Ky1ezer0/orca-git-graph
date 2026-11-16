@@ -1,7 +1,7 @@
-export const defaults = Object.freeze({ layout: 'flexible', diffView: 'main', initialBranch: '', showStashes: false, showTags: true, includeReflogs: false, firstParent: false, issueLinks: Object.freeze([]) });
+export const defaults = Object.freeze({ layout: 'compact', diffView: 'main', initialBranch: '', showStashes: true, showTags: true, includeReflogs: false, firstParent: false, issueLinks: Object.freeze([]) });
 
 export function preferences(value = {}) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid repository settings.');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid plugin settings.');
   const result = { ...defaults };
   for (const key of Object.keys(defaults).filter(key => key !== 'issueLinks')) {
     if (!(key in value)) continue;

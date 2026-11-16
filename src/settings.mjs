@@ -110,7 +110,7 @@ export function setupSettings({ getWorkspace, getPreferences, getRefs, onSave, o
     const current = ++revision;
     workspaceId = workspace.id; configuration = undefined; onOpen();
     $('settings-page').hidden = false; document.body.classList.add('settings-open');
-    $('settings-repository').textContent = workspace.path;
+    $('settings-repository').textContent = 'Git identity and remotes for: ' + workspace.path;
     const initial = $('setting-initialBranch'); initial.replaceChildren(new Option('Show all', ''), new Option('Current branch / HEAD', 'HEAD'));
     for (const ref of getRefs().filter(r => r.kind !== 'stash')) initial.add(new Option(ref.label, ref.name));
     const prefs = preferences(getPreferences());

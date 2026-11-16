@@ -1,13 +1,8 @@
 import { createHash } from 'node:crypto';
-import { realpath } from 'node:fs/promises';
 import { git } from './git.mjs';
 import { withRepositoryLock } from './actions.mjs';
 import { preferences } from './preferences.mjs';
 
-export async function settingsKey(path) {
-  const root = await realpath((await git(path, ['rev-parse', '--show-toplevel'])).replace(/\r?\n$/, ''));
-  return 'repository.' + createHash('sha256').update(root).digest('hex');
-}
 async function config(path, key, local = false) {
   return (await git(path, ['config', ...(local ? ['--local'] : []), '--null', '--get-all', key], { allowMissing: true })).split('\0').filter(Boolean);
 }
@@ -64,11 +59,11 @@ export async function changeConfiguration(path, input) {
     return readConfiguration(path);
   });
 }
-export async function readPreferences(orca, path) {
-  return preferences(await orca.storage.get(await settingsKey(path)) || {});
+export async function readPreferences(orca) {
+  return preferences(await orca.storage.get('preferences') || {});
 }
-export async function savePreferences(orca, path, value) {
+export async function savePreferences(orca, value) {
   const validated = preferences(value);
-  await orca.storage.set(await settingsKey(path), validated);
+  await orca.storage.set('preferences', validated);
   return validated;
 }

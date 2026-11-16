@@ -21,7 +21,7 @@
       </div>
       <button id="pull" type="button" title="Fetch all remotes without merging or changing your working files" disabled>Pull</button>
       <button id="refresh" class="icon-button" type="button" aria-label="Refresh" title="Refresh workspaces and history; local changes also refresh every 5 seconds while visible"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9"/></svg></button>
-      <button id="settings" class="icon-button" type="button" aria-label="Repository settings" title="Repository settings" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l.6 3 2.6 1.5 2.8-.9 3 5.2-2.2 2.1v3L24 19l-3 5.2-2.8-.9L15.6 25 15 28H9l-.6-3-2.6-1.7-2.8.9L0 19l2.2-2.1v-3L0 11.8l3-5.2 2.8.9L8.4 6Z" transform="translate(3 1) scale(.75)"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <button id="settings" class="icon-button" type="button" aria-label="Git Graph settings" title="Git Graph settings" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l.6 3 2.6 1.5 2.8-.9 3 5.2-2.2 2.1v3L24 19l-3 5.2-2.8-.9L15.6 25 15 28H9l-.6-3-2.6-1.7-2.8.9L0 19l2.2-2.1v-3L0 11.8l3-5.2 2.8.9L8.4 6Z" transform="translate(3 1) scale(.75)"/><circle cx="12" cy="12" r="3"/></svg></button>
     </div>
   </header>
   <p id="status" class="status" role="status" aria-live="polite">Loading workspaces…</p>
@@ -74,16 +74,18 @@
     </form>
   </dialog>
   <section id="settings-page" aria-labelledby="settings-title" hidden>
-    <header class="settings-header"><h1 id="settings-title">Repository Settings</h1><button id="settings-close" class="icon-button" type="button" aria-label="Close settings" title="Close settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
+    <header class="settings-header"><h1 id="settings-title">Git Graph Settings</h1><button id="settings-close" class="icon-button" type="button" aria-label="Close settings" title="Close settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
     <p id="settings-repository" class="muted"></p>
     <p id="settings-status" class="status" role="status"></p>
     <div class="settings-scroll">
       <form id="preferences-form">
         <section class="settings-section"><h2>General</h2>
+          <p class="setting-help">These preferences apply to all repositories in Git Graph.</p>
           <label for="setting-layout">Commit row padding<select id="setting-layout"><option value="compact">Compact</option><option value="flexible">Flexible</option></select></label>
           <label for="setting-diffView">Open file diffs in<select id="setting-diffView"><option value="main">Main panel — cache-backed snapshot</option><option value="inline">Inline — inside Git Graph</option></select></label>
           <p class="setting-help">Main-panel snapshots stay in this project’s .orca/git-graph-diffs/ folder, locally excluded from Git. Click a file again to refresh its snapshot.</p>
           <label for="setting-initialBranch">Initial branches<select id="setting-initialBranch"><option value="">Show all</option><option value="HEAD">Current branch / HEAD</option></select></label>
+          <p class="setting-help">If the selected branch is unavailable in a repository, show all instead.</p>
           <label class="check-setting"><input id="setting-showStashes" type="checkbox">Show stashes</label>
           <label class="check-setting"><input id="setting-showTags" type="checkbox">Show tags</label>
           <label class="check-setting"><input id="setting-includeReflogs" type="checkbox">Include commits only mentioned by reflogs</label>
@@ -99,7 +101,7 @@
       <section class="settings-section"><h2>User Details</h2><dl id="settings-user" class="settings-user"></dl><p class="setting-help">Effective Git identity. Edits and removal affect repository-local overrides only, never global configuration.</p><div class="setting-buttons"><button id="identity-edit" type="button">Edit…</button><button id="identity-remove" type="button">Remove local override…</button></div></section>
       <section class="settings-section"><h2>Remote Configuration</h2><div id="settings-remotes"></div><button id="remote-add" type="button">Add remote…</button><p class="setting-help">Changes apply only after confirmation. Removing a remote also removes its remote-tracking references. No automatic network requests.</p></section>
     </div>
-    <footer class="settings-footer"><span class="muted">Changes apply and save automatically per repository.</span></footer>
+    <footer class="settings-footer"><span class="muted">Preferences save automatically for all repositories.</span></footer>
   </section>
   <dialog id="config-dialog" aria-labelledby="config-title">
     <form id="config-form"><h2 id="config-title"></h2><p id="config-description"></p>

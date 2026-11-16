@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { cacheDiff, orcaCommand, diffPluginKey } from './diff-cache.mjs';
 import { preferences, defaults, linkUrl, findIssueLinks } from './preferences.mjs';
-import { readConfiguration, changeConfiguration, readPreferences, savePreferences, settingsKey } from './repository-settings.mjs';
+import { readConfiguration, changeConfiguration, readPreferences, savePreferences } from './repository-settings.mjs';
 import { readHistory } from './git.mjs';
 import activate from './worker.mjs';
 
@@ -25,6 +25,9 @@ function storage() { const data = new Map(); return { get: async key => data.get
 
 test('preferences validate issue rules, migrate legacy links and discard PR settings', () => {
   assert.deepEqual(preferences(), defaults);
+  assert.equal(defaults.layout, 'compact');
+  assert.equal(defaults.showStashes, true);
+  assert.deepEqual(preferences({ layout: 'flexible', showStashes: false }), { ...defaults, layout: 'flexible', showStashes: false });
   assert.deepEqual(preferences({ layout: 'compact', name: 'Old display name' }), { ...defaults, layout: 'compact' });
   assert.throws(() => preferences({ layout: 'unknown' }), /layout/);
   assert.throws(() => preferences({ showStashes: 'yes' }), /Invalid setting/);
@@ -64,15 +67,16 @@ test('issue links route literal prefixes, preserve text and reject partial ident
   assert.deepEqual(findIssueLinks(message, []), []);
 });
 
-test('repository preferences persist independently and share nested-folder identity', async t => {
-  const a = await repo(t), b = await repo(t), orca = { storage: storage() };
-  await mkdir(join(a.path, 'nested'));
-  assert.equal(await settingsKey(a.path), await settingsKey(join(a.path, 'nested')));
-  await savePreferences(orca, a.path, { layout: 'compact', showTags: false });
-  assert.equal((await readPreferences(orca, a.path)).layout, 'compact');
-  assert.equal((await readPreferences(orca, b.path)).layout, 'flexible');
-  await assert.rejects(savePreferences(orca, a.path, { diffView: 'bad' }), /diff location/);
-  assert.equal((await readPreferences(orca, a.path)).showTags, false);
+test('plugin preferences use one persistent record and preserve explicit overrides', async () => {
+  const orca = { storage: storage() };
+  await orca.storage.set('repository.old', { layout: 'flexible', showStashes: false });
+  assert.deepEqual(await readPreferences(orca), defaults);
+  const saved = await savePreferences(orca, { layout: 'flexible', showStashes: false, showTags: false });
+  const reopened = { storage: orca.storage };
+  assert.deepEqual(await readPreferences(reopened), saved);
+  assert.deepEqual(await orca.storage.get('preferences'), saved);
+  await assert.rejects(savePreferences(orca, { diffView: 'bad' }), /diff location/);
+  assert.deepEqual(await readPreferences(orca), saved);
 });
 
 test('configuration requires confirmation and fresh state, edits only local identity and remotes', async t => {
@@ -217,13 +221,23 @@ test('cache refuses tracked contents and ignore overrides before writing snapsho
   assert.deepEqual(await readdir(directory), ['keep']);
 });
 
-test('new worker endpoints authorize workspace IDs and apply stored history settings', async t => {
+test('worker endpoints authorize workspaces and share preferences across repositories and activation', async t => {
   const r = await repo(t); await r.file('a', 'root'); await r.commit('root'); await r.git('tag', 'v1');
-  const handlers = new Map();
-  activate({ storage: storage(), panels: { handle: (name, fn) => handlers.set(name, fn) }, host: { call: async () => ({ workspaces: [{ id: 'local', path: r.path, hostId: 'local' }], truncated: false }) } });
+  const other = await repo(t); await other.file('a', 'root'); await other.commit('root'); await other.git('tag', 'v2');
+  const handlers = new Map(), savedStorage = storage(), writes = [];
+  const orca = { storage: { get: savedStorage.get, set: async (key, value) => { writes.push(key); await savedStorage.set(key, value); } }, panels: { handle: (name, fn) => handlers.set(name, fn) }, host: { call: async () => ({ workspaces: [{ id: 'local', path: r.path, hostId: 'local' }, { id: 'other', path: other.path, hostId: 'local' }], truncated: false }) } };
+  activate(orca);
   const call = (name, input) => handlers.get(name)(input, { signal: new AbortController().signal });
   for (const name of ['preferences', 'preferences-save', 'configuration', 'configuration-change', 'open-diff']) await assert.rejects(call(name, { workspaceId: 'unknown', path: r.path }), /no longer available/);
   await call('preferences-save', { workspaceId: 'local', path: '/evil', preferences: { showTags: false } });
   assert.equal((await call('preferences', { workspaceId: 'local' })).showTags, false);
   assert.equal((await call('history', { workspaceId: 'local', showTags: true })).refs.some(ref => ref.kind === 'tag'), false);
+  assert.equal((await call('preferences', { workspaceId: 'other' })).showTags, false);
+  assert.equal((await call('history', { workspaceId: 'other', showTags: true })).refs.some(ref => ref.kind === 'tag'), false);
+  await call('preferences-save', { workspaceId: 'other', preferences: { layout: 'flexible', showStashes: false } });
+  handlers.clear(); activate(orca);
+  const saved = await call('preferences', { workspaceId: 'local' });
+  assert.equal(saved.layout, 'flexible'); assert.equal(saved.showStashes, false);
+  assert.deepEqual(saved, await call('preferences', { workspaceId: 'other' }));
+  assert.deepEqual(writes, ['preferences', 'preferences']);
 });

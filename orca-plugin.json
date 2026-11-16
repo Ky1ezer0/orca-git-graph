@@ -45,5 +45,17 @@
   "cover": {
     "path": "assets/git-graph/cover.jpg",
     "alt": "Git Graph for Orca with cyan, mint, and lavender branching commit paths on a dark background."
-  }
+  },
+  "screenshots": [
+    {
+      "path": "assets/git-graph/overview.png",
+      "alt": "Git Graph in Orca showing commit history, HEAD, local and remote branch labels, release tags, search, and uncommitted changes.",
+      "caption": "Browse repository history, branches, tags, and uncommitted changes."
+    },
+    {
+      "path": "assets/git-graph/branches.png",
+      "alt": "Git Graph demo showing four colored branches, a merged feature/search branch, HEAD on main, and the v1.1.0 release tag.",
+      "caption": "Multiple branches and a merge, rendered with demo repository history."
+    }
+  ]
 }

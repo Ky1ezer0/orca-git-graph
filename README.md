@@ -13,7 +13,17 @@ Requires Orca 1.4.248+ and Git.
 3. Review and approve the plugin in Orca.
 4. Open a local repository and select the Git Graph icon in the right sidebar.
 
-Search commits, select a commit to review files, or right-click for Git actions. Settings are beside Refresh and save automatically.
+Search commits, select a commit to review files, or right-click for Git actions. Settings are beside Refresh and save automatically. Git Graph preferences are shared across all repositories; Git identity and remotes remain repository-local. Compact layout and Show stashes are enabled by default. Older per-repository preferences are no longer used; the shared configuration starts with these defaults.
+
+## UI preview
+
+Captured from the installed v1.0.1 plugin in Orca, using this repository’s history.
+
+![Git Graph showing commit history, branch labels, release tags, and uncommitted changes](assets/git-graph/overview.png)
+
+The current panel rendered in the browser test harness with a temporary demo repository: four branches, a merge, and a release tag.
+
+![Git Graph showing multiple colored branches and a merge](assets/git-graph/branches.png)
 
 ## Notes
 

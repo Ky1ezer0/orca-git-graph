@@ -30,11 +30,11 @@ export default function activate(orca) {
   });
   handle('history', async (input, signal) => {
     const path = await selected(input);
-    const preferences = await readPreferences(orca, path);
+    const preferences = await readPreferences(orca);
     return { ...await readHistory(path, { ...input, ...preferences, signal }), operation: await operationState(path) };
   });
-  handle('preferences', async input => readPreferences(orca, await selected(input)));
-  handle('preferences-save', async input => savePreferences(orca, await selected(input), input.preferences));
+  handle('preferences', async input => { await selected(input); return readPreferences(orca); });
+  handle('preferences-save', async input => { await selected(input); return savePreferences(orca, input.preferences); });
   handle('configuration', async input => readConfiguration(await selected(input)));
   handle('configuration-change', async input => changeConfiguration(await selected(input), input));
   handle('open-diff', async (input, signal) => openCachedDiff(await selected(input), input, signal));
