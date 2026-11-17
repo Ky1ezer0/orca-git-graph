@@ -17,7 +17,7 @@ async function repo(t) {
   await git('config', 'commit.gpgsign', 'false');
   const file = (name, value) => writeFile(join(path, name), value);
   const commit = async (name, value = name) => { await file(name, value); await git('add', '--all'); await git('commit', '-m', name); return git('rev-parse', 'HEAD'); };
-  const act = async (action, data = {}) => { const h = await readHistory(path); return runAction(path, { action, hash: h.head, expectedHead: h.head, expectedBranch: h.branch, confirmed: true, ...data }); };
+  const act = async (action, data = {}) => { const h = await readHistory(path); return runAction(path, { action, hash: h.head, expectedHead: h.head, expectedBranch: h.branch, expectedWorkingSnapshot: h.workingSnapshot, confirmed: true, ...data }); };
   return { path, git, file, commit, act };
 }
 test('actions validate confirmation, stale state, names and dirty work before changing Git', async t => {
@@ -132,4 +132,53 @@ test('rebase conflicts can be continued or aborted', async t => {
   await assert.rejects(r.act('rebase', { hash: feature })); await r.file('file', 'resolved'); await r.git('add', 'file');
   await r.act('continue', { operation: 'rebase' }); assert.equal(await operationState(r.path), '');
   assert.equal((await readHistory(r.path)).branch, 'main');
+});
+
+test('working actions require confirmation and fresh state, stash untracked files and preserve HEAD', async t => {
+  const r = await repo(t); const head = await r.commit('tracked', 'base');
+  await r.file('tracked', 'staged'); await r.git('add', 'tracked'); await r.file('tracked', 'unstaged');
+  await r.file('untracked', 'save me');
+  for (const action of ['stash-working', 'reset-working', 'clean-working']) {
+    await assert.rejects(r.act(action, { confirmed: false }), /Confirm/);
+    await assert.rejects(r.act(action, { expectedWorkingSnapshot: 'stale' }), /Working tree changed/);
+    await assert.rejects(r.act(action, { expectedHead: '0'.repeat(40) }), /HEAD or branch changed/);
+  }
+  const old = await readHistory(r.path); await r.file('tracked', 'newer edits');
+  await assert.rejects(r.act('reset-working', { expectedWorkingSnapshot: old.workingSnapshot }), /Working tree changed/);
+  await r.act('stash-working');
+  assert.equal(await r.git('status', '--porcelain'), '');
+  assert.equal(await r.git('rev-parse', 'HEAD'), head);
+  await r.git('stash', 'apply', '--index');
+  assert.equal(await readFile(join(r.path, 'tracked'), 'utf8'), 'newer edits');
+  assert.equal(await r.git('show', ':tracked'), 'staged');
+  assert.equal(await readFile(join(r.path, 'untracked'), 'utf8'), 'save me');
+});
+test('working reset discards tracked edits; clean only removes non-ignored untracked files', async t => {
+  const r = await repo(t); await r.file('.gitignore', 'ignored\n');
+  const head = await r.commit('tracked', 'base');
+  await r.file('tracked', 'staged'); await r.git('add', 'tracked'); await r.file('tracked', 'unstaged');
+  await r.file('added', 'staged addition'); await r.git('add', 'added');
+  await r.file('untracked', 'delete only on clean'); await r.file('ignored', 'keep');
+  await r.act('reset-working');
+  assert.equal(await r.git('rev-parse', 'HEAD'), head);
+  assert.equal(await readFile(join(r.path, 'tracked'), 'utf8'), 'base');
+  assert.equal(await r.git('diff', '--cached'), '');
+  await assert.rejects(readFile(join(r.path, 'added')), /ENOENT/);
+  assert.equal(await readFile(join(r.path, 'untracked'), 'utf8'), 'delete only on clean');
+  await r.file('tracked', 'keep edits');
+  await r.act('clean-working');
+  await assert.rejects(readFile(join(r.path, 'untracked')), /ENOENT/);
+  assert.equal(await readFile(join(r.path, 'ignored'), 'utf8'), 'keep');
+  assert.equal(await readFile(join(r.path, 'tracked'), 'utf8'), 'keep edits');
+});
+test('working actions handle unborn and detached HEAD and block in-progress operations', async t => {
+  const r = await repo(t); await r.file('untracked', 'new');
+  for (const action of ['stash-working', 'reset-working']) await assert.rejects(r.act(action), /first commit/);
+  await r.act('clean-working'); await assert.rejects(readFile(join(r.path, 'untracked')), /ENOENT/);
+  const head = await r.commit('tracked'); await r.git('checkout', '--detach');
+  await r.file('tracked', 'edited'); await r.act('reset-working');
+  assert.equal(await readFile(join(r.path, 'tracked'), 'utf8'), 'tracked');
+  await r.file('tracked', 'edited again');
+  await writeFile(join(r.path, '.git', 'MERGE_HEAD'), head + '\n');
+  for (const action of ['stash-working', 'reset-working', 'clean-working']) await assert.rejects(r.act(action), /Finish or abort/);
 });

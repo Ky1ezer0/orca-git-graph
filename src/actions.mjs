@@ -1,9 +1,9 @@
 import { lstat, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { git, assertHash } from './git.mjs';
+import { git, assertHash, readHistory } from './git.mjs';
 
 const active = new Set();
-const actions = new Set(['tag', 'branch', 'checkout', 'cherry-pick', 'revert', 'drop', 'merge', 'rebase', 'reset', 'fetch', 'continue', 'abort']);
+const actions = new Set(['tag', 'branch', 'checkout', 'cherry-pick', 'revert', 'drop', 'merge', 'rebase', 'reset', 'fetch', 'continue', 'abort', 'stash-working', 'reset-working', 'clean-working']);
 
 export async function operationState(path) {
   for (const [marker, operation] of [['rebase-merge', 'rebase'], ['rebase-apply', 'rebase'], ['CHERRY_PICK_HEAD', 'cherry-pick'], ['REVERT_HEAD', 'revert'], ['MERGE_HEAD', 'merge']]) {
@@ -35,6 +35,18 @@ export async function runAction(path, input) {
       return { message: operation + ' ' + (action === 'abort' ? 'aborted.' : 'continued.') };
     }
     if (operation) throw new Error('Finish or abort the current ' + operation + ' before starting another action.');
+    if (['stash-working', 'reset-working', 'clean-working'].includes(action)) {
+      const current = await readHistory(path);
+      if (!input.expectedWorkingSnapshot || input.expectedWorkingSnapshot !== current.workingSnapshot) throw new Error('Working tree changed. Refresh and confirm the action again.');
+      if (action !== 'clean-working' && !head) throw new Error('Create a first commit before stashing or resetting changes.');
+      const root = (await git(path, ['rev-parse', '--show-toplevel'])).replace(/\r?\n$/, '');
+      // Stash builds its own literal pathspecs for cleanup; inheriting literal-pathspecs breaks untracked removal.
+      const args = action === 'stash-working' ? ['--no-literal-pathspecs', 'stash', 'push', '--include-untracked']
+        : action === 'reset-working' ? ['reset', '--hard', '--no-recurse-submodules', 'HEAD']
+        : ['clean', '-fd'];
+      await git(root, args, { write: true });
+      return { message: action === 'stash-working' ? 'Uncommitted changes stashed.' : action === 'reset-working' ? 'Uncommitted changes reset.' : 'Untracked files cleaned.' };
+    }
     {
       assertHash(hash);
       const resolved = (await git(path, ['rev-parse', '--verify', hash + '^{commit}'])).trim();

@@ -27,6 +27,7 @@ The current panel rendered in the browser test harness with a temporary demo rep
 
 ## Notes
 
+- Right-click **Uncommitted Changes** to stash changes (including untracked files), reset tracked changes to HEAD, or clean non-ignored untracked files. Reset and Clean permanently discard work and require confirmation.
 - Context-menu changes require confirmation. Checkout detaches HEAD; Rebase, Drop, and Reset rewrite history.
 - File diffs open as cached snapshots in `.orca/git-graph-diffs/` inside the original project. The plugin adds a local Git exclusion in `info/exclude`, without changing `.gitignore`. Click the file again to refresh, or select **Settings → Open file diffs in → Inline**.
 - Cached patches may contain sensitive content and remain until deleted. Close diff tabs before clearing the project’s `.orca/git-graph-diffs/` folder. Older snapshots in `Orca/Git Graph Diffs` in your operating system’s cache directory are not moved or deleted.

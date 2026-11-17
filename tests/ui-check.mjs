@@ -83,6 +83,35 @@ for (const [label,action] of [['Add Tag…','tag'],['Checkout…','checkout'],['
   if(action==='reset')assert.equal(sent.mode,'hard');
   if(action==='tag')assert.equal(sent.name,'ui-tag');
 }
+// Working-tree menu reuses the confirmation and keyboard behavior without commit actions.
+await page.evaluate(()=>{window.__dirty=true;window.__version++;});
+await page.locator('#refresh').click(); await page.waitForSelector('#refresh:enabled');
+await page.locator('.working-tree').focus(); await page.keyboard.press('Shift+F10');
+assert.deepEqual(await page.locator('#context-menu button').allTextContents(), ['Stash uncommitted changes…', 'Reset uncommitted changes…', 'Clean untracked files…']);
+await page.keyboard.press('End'); assert.equal(await page.evaluate(()=>document.activeElement.textContent),'Clean untracked files…');
+await page.keyboard.press('Escape'); assert.equal(await page.evaluate(()=>document.activeElement.classList.contains('working-tree')),true);
+for (const [label, action] of [['Stash uncommitted changes…','stash-working'], ['Reset uncommitted changes…','reset-working'], ['Clean untracked files…','clean-working']]) {
+  await page.locator('.working-tree').click({button:'right'});
+  const bounds=await page.locator('#context-menu').boundingBox();
+  assert.ok(bounds.x>=0 && bounds.x+bounds.width<=390 && bounds.y>=0 && bounds.y+bounds.height<=844);
+  await page.getByRole('menuitem',{name:label,exact:true}).click();
+  assert.equal(await page.locator('#action-mode-label').isVisible(),false);
+  assert.doesNotMatch(await page.locator('#action-description').textContent(), /Commit: working-tree/);
+  const before=await page.evaluate(()=>__requests.filter(r=>r.name==='action').length);
+  await page.locator('#action-cancel').click();
+  assert.equal(await page.evaluate(()=>__requests.filter(r=>r.name==='action').length),before);
+  await page.locator('.working-tree').click({button:'right'});
+  await page.getByRole('menuitem',{name:label,exact:true}).click();
+  await page.locator('#action-submit').click();
+  await page.waitForFunction(n=>__requests.filter(r=>r.name==='action').length===n+1 && !document.querySelector('#pull').disabled,before);
+  const sent=await page.evaluate(()=>__requests.filter(r=>r.name==='action').at(-1).input);
+  assert.equal(sent.action,action); assert.equal(sent.confirmed,true);
+  assert.equal(typeof sent.expectedWorkingSnapshot,'string'); assert.equal('hash' in sent,false);
+}
+await page.locator('.working-tree').click({button:'right'});
+await page.screenshot({path:join(tmpdir(),'graph-working-menu-narrow.png')});
+await page.keyboard.press('Escape');
+console.log('working menu actions, confirmation, cancel, snapshot, keyboard and narrow bounds passed');
 await page.context().grantPermissions(['clipboard-read','clipboard-write']);
 for(const [label,field] of [['Copy Commit Hash to Clipboard','hash'],['Copy Commit Subject to Clipboard','subject']]) {
   const row=page.locator('.commit:not(.working-tree)').first();
