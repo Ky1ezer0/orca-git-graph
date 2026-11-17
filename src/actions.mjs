@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { git, assertHash, readHistory } from './git.mjs';
 
 const active = new Set();
-const actions = new Set(['tag', 'branch', 'checkout', 'cherry-pick', 'revert', 'drop', 'merge', 'rebase', 'reset', 'fetch', 'continue', 'abort', 'stash-working', 'reset-working', 'clean-working']);
+const actions = new Set(['tag', 'branch', 'checkout', 'cherry-pick', 'revert', 'drop', 'merge', 'rebase', 'reset', 'fetch', 'continue', 'abort', 'stash-working', 'reset-working', 'clean-working', 'stash-apply', 'stash-branch', 'stash-pop', 'stash-drop']);
 
 export async function operationState(path) {
   for (const [marker, operation] of [['rebase-merge', 'rebase'], ['rebase-apply', 'rebase'], ['CHERRY_PICK_HEAD', 'cherry-pick'], ['REVERT_HEAD', 'revert'], ['MERGE_HEAD', 'merge']]) {
@@ -52,12 +52,39 @@ export async function runAction(path, input) {
       const resolved = (await git(path, ['rev-parse', '--verify', hash + '^{commit}'])).trim();
       if (resolved !== hash.toLowerCase()) throw new Error('Select a commit, not another Git object.');
     }
-    if (action === 'tag' || action === 'branch') {
+    if (action === 'tag' || action === 'branch' || action === 'stash-branch') {
       const name = input.name;
       if (typeof name !== 'string' || !name || name.startsWith('-') || name === 'HEAD' || name.length > 200 || name.includes('\0')) throw new Error('Enter a valid ' + action + ' name.');
       await git(path, ['check-ref-format', 'refs/' + (action === 'tag' ? 'tags/' : 'heads/') + name]);
-      await git(path, action === 'tag' ? ['tag', '--no-sign', '--', name, hash] : ['branch', '--', name, hash], { write: true });
-      return { message: (action === 'tag' ? 'Tag' : 'Branch') + ' created.' };
+      if (action !== 'stash-branch') {
+        await git(path, action === 'tag' ? ['tag', '--no-sign', '--', name, hash] : ['branch', '--', name, hash], { write: true });
+        return { message: (action === 'tag' ? 'Tag' : 'Branch') + ' created.' };
+      }
+    }
+    if (['stash-apply', 'stash-branch', 'stash-pop', 'stash-drop'].includes(action)) {
+      const checkStash = async () => {
+        const stashes = (await git(path, ['stash', 'list', '--format=%H%x00%gd'])).trimEnd().split('\n');
+        if (typeof input.stashName !== 'string' || !/^stash@\{[0-9]+\}$/.test(input.stashName) || !stashes.includes(hash + '\0' + input.stashName)) throw new Error('Stash changed. Refresh and confirm the action again.');
+      };
+      await checkStash();
+      const current = await readHistory(path);
+      if (!input.expectedWorkingSnapshot || input.expectedWorkingSnapshot !== current.workingSnapshot) throw new Error('Working tree changed. Refresh and confirm the action again.');
+      if (action !== 'stash-drop' && current.workingTree.totalFiles) throw new Error('Commit or stash all local changes before this action.');
+      const root = (await git(path, ['rev-parse', '--show-toplevel'])).replace(/\r?\n$/, '');
+      if (action === 'stash-branch') {
+        // Unlike stash branch, explicitly protect ignored files when switching to the stash base.
+        await git(root, ['checkout', '--no-overwrite-ignore', '--no-recurse-submodules', '-b', input.name, hash + '^1'], { write: true });
+      }
+      if (action !== 'stash-drop') {
+        try { await git(root, ['stash', 'apply', ...(action === 'stash-branch' ? ['--index'] : []), hash], { write: true }); }
+        catch (error) { throw new Error('Stash kept. Inspect the working tree and resolve any conflicts before retrying. ' + error.message); }
+      }
+      if (action !== 'stash-apply') {
+        // Stash numbers can shift while another Git client is working.
+        await checkStash();
+        await git(root, ['stash', 'drop', input.stashName], { write: true });
+      }
+      return { message: action === 'stash-apply' ? 'Stash applied and kept.' : action === 'stash-drop' ? 'Stash dropped.' : action === 'stash-pop' ? 'Stash applied and dropped.' : 'Branch created from stash; stash dropped.' };
     }
     // Refuse dirty worktrees even for hard reset: never silently destroy uncommitted work.
     if (await git(path, ['status', '--porcelain=v1', '--untracked-files=all'])) throw new Error('Commit or stash all local changes before this action.');

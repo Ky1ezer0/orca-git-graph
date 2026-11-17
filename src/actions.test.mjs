@@ -182,3 +182,74 @@ test('working actions handle unborn and detached HEAD and block in-progress oper
   await writeFile(join(r.path, '.git', 'MERGE_HEAD'), head + '\n');
   for (const action of ['stash-working', 'reset-working', 'clean-working']) await assert.rejects(r.act(action), /Finish or abort/);
 });
+
+test('stash actions require confirmation and reject stale selectors, snapshots and dirty worktrees', async t => {
+  const r = await repo(t); await r.commit('tracked');
+  await r.file('tracked', 'saved'); await r.git('stash', 'push');
+  const hash = await r.git('rev-parse', 'stash@{0}');
+  const input = { hash, stashName: 'stash@{0}' };
+  for (const action of ['stash-apply', 'stash-pop', 'stash-drop', 'stash-branch']) {
+    await assert.rejects(r.act(action, { ...input, name: 'restore', confirmed: false }), /Confirm/);
+    await assert.rejects(r.act(action, { ...input, name: 'restore', expectedWorkingSnapshot: 'stale' }), /Working tree changed/);
+    await assert.rejects(r.act(action, { ...input, name: 'restore', stashName: '--all' }), /Stash changed/);
+  }
+  await r.file('tracked', 'newer'); await r.git('stash', 'push');
+  await assert.rejects(r.act('stash-drop', input), /Stash changed/);
+  await r.file('tracked', 'precious');
+  for (const action of ['stash-apply', 'stash-pop', 'stash-branch']) await assert.rejects(r.act(action, { ...input, stashName: 'stash@{1}', name: 'restore' }), /Commit or stash/);
+  await r.act('stash-drop', { ...input, stashName: 'stash@{1}' });
+  assert.equal(await readFile(join(r.path, 'tracked'), 'utf8'), 'precious');
+  assert.equal((await r.git('stash', 'list', '--format=%H')).split('\n').length, 1);
+  assert.notEqual(await r.git('rev-parse', 'stash@{0}'), hash);
+});
+test('apply keeps the selected stash; pop removes it only after successfully restoring files', async t => {
+  for (const action of ['stash-apply', 'stash-pop']) {
+    const r = await repo(t); const head = await r.commit('tracked');
+    await r.file('tracked', 'saved'); await r.file('untracked', 'new');
+    await r.git('stash', 'push', '-u');
+    const hash = await r.git('rev-parse', 'stash@{0}');
+    await r.act(action, { hash, stashName: 'stash@{0}' });
+    assert.equal(await readFile(join(r.path, 'tracked'), 'utf8'), 'saved');
+    assert.equal(await readFile(join(r.path, 'untracked'), 'utf8'), 'new');
+    assert.equal(await r.git('rev-parse', 'HEAD'), head);
+    assert.equal(await r.git('stash', 'list', '--format=%H'), action === 'stash-apply' ? hash : '');
+  }
+});
+test('conflicting stash pop keeps the stash and blocks another apply until conflicts are resolved', async t => {
+  const r = await repo(t); await r.commit('tracked', 'base\n');
+  await r.file('tracked', 'stash edit\n'); await r.git('stash', 'push');
+  const hash = await r.git('rev-parse', 'stash@{0}');
+  await r.commit('tracked', 'conflicting edit\n');
+  await assert.rejects(r.act('stash-pop', { hash, stashName: 'stash@{0}' }), /Stash kept/);
+  assert.equal(await r.git('rev-parse', 'stash@{0}'), hash);
+  assert.match(await r.git('status', '--porcelain'), /UU tracked/);
+  await assert.rejects(r.act('stash-apply', { hash, stashName: 'stash@{0}' }), /Commit or stash/);
+});
+test('branch from stash restores its original base and index, validates names and protects ignored files', async t => {
+  const r = await repo(t); const base = await r.commit('tracked', 'base');
+  await r.file('tracked', 'staged'); await r.git('add', 'tracked');
+  await r.file('tracked', 'unstaged'); await r.file('new', 'untracked');
+  await r.git('stash', 'push', '-u');
+  const hash = await r.git('rev-parse', 'stash@{0}');
+  await r.commit('tracked', 'later');
+  const input = { hash, stashName: 'stash@{0}' };
+  for (const name of ['--bad', 'HEAD', 'bad..name', 'main']) await assert.rejects(r.act('stash-branch', { ...input, name }));
+  assert.equal(await r.git('rev-parse', 'stash@{0}'), hash);
+  await r.act('stash-branch', { ...input, name: 'restore' });
+  assert.equal(await r.git('branch', '--show-current'), 'restore');
+  assert.equal(await r.git('rev-parse', 'HEAD'), base);
+  assert.equal(await r.git('show', ':tracked'), 'staged');
+  assert.equal(await readFile(join(r.path, 'tracked'), 'utf8'), 'unstaged');
+  assert.equal(await readFile(join(r.path, 'new'), 'utf8'), 'untracked');
+  assert.equal(await r.git('stash', 'list'), '');
+
+  await r.git('reset', '--hard'); await r.git('clean', '-fd');
+  await r.file('tracked', 'saved'); await r.git('stash', 'push');
+  const second = await r.git('rev-parse', 'stash@{0}');
+  await r.git('rm', 'tracked'); await r.git('commit', '-m', 'remove tracked');
+  await writeFile(join(r.path, '.git', 'info', 'exclude'), 'tracked\n');
+  await r.file('tracked', 'precious ignored');
+  await assert.rejects(r.act('stash-branch', { hash: second, stashName: 'stash@{0}', name: 'protected' }), /overwritten/);
+  assert.equal(await readFile(join(r.path, 'tracked'), 'utf8'), 'precious ignored');
+  assert.equal(await r.git('rev-parse', 'stash@{0}'), second);
+});

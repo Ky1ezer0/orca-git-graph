@@ -13,7 +13,7 @@ const browser=await chromium.launch({headless:true});
 try {
 const page=await browser.newPage({viewport:{width:1440,height:900}});
 await page.addInitScript({content:await readFile(root+'/tests/ui-fixture.js','utf8')});
-await page.addInitScript(()=>{window.__version=0;window.__operation='';const original=window.orca.plugin.request;window.orca.plugin.request=async(name,input,options)=>{if(options?.timeoutMs>120000)throw Error('timeoutMs exceeds Orca limit');JSON.stringify(input,(_key,value)=>{if(value===undefined)throw Error('input: Invalid input');return value;});if(name==='action'){window.__requests.push({name,input});if(window.__fail)throw Error('Resolve conflicts');window.__version++;return {message:'Action done'};}const result=await original(name,input);if(name==='history'){result.snapshot='fixture'+window.__version;result.workingSnapshot=String(window.__dirty)+window.__version;result.operation=window.__operation;}return result;};});
+await page.addInitScript(()=>{window.__version=0;window.__operation='';const original=window.orca.plugin.request;window.orca.plugin.request=async(name,input,options)=>{if(options?.timeoutMs>120000)throw Error('timeoutMs exceeds Orca limit');JSON.stringify(input,(_key,value)=>{if(value===undefined)throw Error('input: Invalid input');return value;});if(name==='action'){window.__requests.push({name,input});if(window.__fail)throw Error('Resolve conflicts');window.__version++;return {message:'Action done'};}const result=await original(name,input);if(name==='history'){result.snapshot='fixture'+window.__version;result.workingSnapshot=String(window.__dirty)+window.__version;result.operation=window.__operation;result.refs.push(...(window.__stashes||[]));}return result;};});
 await page.goto('http://127.0.0.1:'+server.address().port+'/src/panel.html');
 await page.waitForSelector('.commit');
 // Shared branch preferences must not break repositories without that branch.
@@ -129,6 +129,52 @@ await page.locator('#search').fill('Merge');const cur=await page.locator('.searc
 await page.keyboard.press('Control+f');assert.equal(await page.locator('#search').evaluate(el=>el===document.activeElement),true);
 await page.locator('.commit:not(.working-tree)').first().click({button:'right'});await page.getByRole('menuitem',{name:'Checkout…',exact:true}).click();const count=await page.evaluate(()=>__requests.filter(r=>r.name==='history').length);await page.waitForTimeout(5200);assert.equal(await page.evaluate(()=>__requests.filter(r=>r.name==='history').length),count);await page.locator('#action-cancel').click();
 assert.deepEqual(await page.evaluate(()=>__errors),[]);console.log('all menu dispatches, clipboard, mainline, error recovery, search fields/buttons/shortcut and dialog polling pause passed');
+// Stash rows and individual badges use stash actions, not ordinary merge-commit actions.
+await page.evaluate(()=>{window.__stashes=[0,1].map(n=>({hash:(17).toString(16).padStart(40,'0'),kind:'stash',name:'stash@{'+n+'}',label:'stash@{'+n+'}'}));window.__version++;});
+await page.locator('#refresh').click(); await page.waitForSelector('#refresh:enabled');
+const stashRow=page.locator('.commit').filter({has:page.locator('.ref',{hasText:'stash@{0}'})});
+await stashRow.focus();await page.keyboard.press('Shift+F10');
+assert.deepEqual(await page.locator('#context-menu button').allTextContents(),['Apply Stash…','Create Branch from Stash…','Pop Stash…','Drop Stash…','Copy Stash Name to Clipboard','Copy Stash Hash to Clipboard']);
+assert.equal(await page.locator('#context-menu').getAttribute('aria-label'),'Stash actions');
+await page.keyboard.press('End');assert.equal(await page.evaluate(()=>document.activeElement.textContent),'Copy Stash Hash to Clipboard');
+await page.keyboard.press('Escape');assert.equal(await stashRow.evaluate(el=>el===document.activeElement),true);
+for(const [label,action] of [['Apply Stash…','stash-apply'],['Create Branch from Stash…','stash-branch'],['Pop Stash…','stash-pop'],['Drop Stash…','stash-drop']]){
+  await stashRow.locator('.subject').click({button:'right'});
+  const bounds=await page.locator('#context-menu').boundingBox();
+  assert.ok(bounds.x>=0&&bounds.x+bounds.width<=390&&bounds.y>=0&&bounds.y+bounds.height<=844);
+  await page.getByRole('menuitem',{name:label,exact:true}).click();
+  assert.match(await page.locator('#action-description').textContent(),/Stash: stash@\{0\}/);
+  assert.equal(await page.locator('#action-name').isVisible(),action==='stash-branch');
+  const before=await page.evaluate(()=>__requests.filter(r=>r.name==='action').length);
+  await page.locator('#action-cancel').click();
+  assert.equal(await page.evaluate(()=>__requests.filter(r=>r.name==='action').length),before);
+  await stashRow.locator('.subject').click({button:'right'});await page.getByRole('menuitem',{name:label,exact:true}).click();
+  if(action==='stash-branch')await page.locator('#action-name').fill('restore-stash');
+  await page.locator('#action-submit').click();
+  await page.waitForFunction(n=>__requests.filter(r=>r.name==='action').length===n+1&&!document.querySelector('#pull').disabled,before);
+  const sent=await page.evaluate(()=>__requests.filter(r=>r.name==='action').at(-1).input);
+  assert.equal(sent.action,action);assert.equal(sent.stashName,'stash@{0}');assert.equal(sent.hash,(17).toString(16).padStart(40,'0'));
+  assert.equal(sent.confirmed,true);assert.equal(typeof sent.expectedWorkingSnapshot,'string');
+  if(action==='stash-branch')assert.equal(sent.name,'restore-stash');
+}
+for(const [label,expected] of [['Copy Stash Name to Clipboard','stash@{1}'],['Copy Stash Hash to Clipboard',(17).toString(16).padStart(40,'0')]]){
+  await stashRow.locator('.ref').filter({hasText:'stash@{1}'}).click({button:'right'});
+  await page.getByRole('menuitem',{name:label,exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('#status').textContent==='Copied to clipboard.');
+  assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),expected);
+}
+await stashRow.locator('.ref').filter({hasText:'stash@{1}'}).click({button:'right'});
+await page.getByRole('menuitem',{name:'Drop Stash…',exact:true}).click();
+assert.match(await page.locator('#action-description').textContent(),/Stash: stash@\{1\}/);
+await page.locator('#action-cancel').click();
+await stashRow.locator('.subject').click({button:'right'});await page.screenshot({path:join(tmpdir(),'graph-stash-menu-narrow.png')});await page.keyboard.press('Escape');
+await page.evaluate(()=>{window.__operation='merge';window.__version++;});
+await page.locator('#refresh').click();await page.waitForSelector('#refresh:enabled');
+await stashRow.locator('.subject').click({button:'right'});assert.equal(await page.locator('#context-menu button:disabled').count(),4);
+assert.equal(await page.locator('#context-menu button:enabled').count(),2);await page.keyboard.press('Escape');
+await page.evaluate(()=>{window.__stashes=[];window.__operation='';window.__version++;});
+await page.locator('#refresh').click();await page.waitForSelector('#refresh:enabled');
+assert.deepEqual(await page.evaluate(()=>__errors),[]);console.log('stash menu, duplicate-hash badges, clipboard, confirmation, keyboard, operation guards and narrow bounds passed');
 // Sidebar layout stays readable without scrolling the entire history sideways.
 await page.evaluate(()=>{window.__dirty=true;window.__version++;document.documentElement.className='dark';for(const [key,value] of Object.entries({'--orca-background':'#0e1018','--orca-foreground':'#d4d4d4','--orca-muted':'#191b22','--orca-border':'#30323b','--orca-accent':'#30333d'}))document.documentElement.style.setProperty(key,value);});
 await page.locator('#refresh').click();await page.waitForSelector('.working-tree');
@@ -168,6 +214,8 @@ await page.screenshot({path:join(tmpdir(),'graph-sidebar-list.png')});
 assert.deepEqual(await page.evaluate(()=>__errors),[]);console.log('sidebar widths 320/390/453/760, wide layout, stacked details, preserved diff, keyboard and menu-scroll regression passed');
 // Compact removes unused badge space without changing the responsive arrangement.
 async function checkRowPadding(mode) {
+  await page.waitForSelector('#settings-page', { state: 'hidden' });
+  await page.waitForSelector('#refresh:enabled');
   for (const width of [320,453,760,1000]) {
     await page.setViewportSize({width,height:900});
     const narrow=width<=760,padding=mode==='compact'?0:4,height=mode==='compact'?(narrow?38:24):(narrow?64:36);

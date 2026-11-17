@@ -226,6 +226,7 @@ function renderCommits() {
       const badges = node('span', 'refs');
       for (const ref of refs) {
         const badge = node('span', 'ref' + (ref.kind === 'head' ? ' head' : '') + (ref.remotes.length ? ' grouped' : ''));
+        if (ref.kind === 'stash') badge.addEventListener('contextmenu', event => { event.preventDefault(); event.stopPropagation(); openMenu({ ...commit, stashName: ref.label }, row, event.clientX, event.clientY); });
         badge.title = ref.title; badge.style.setProperty('--branch-color', COLORS[layout[i].color]);
         if (ref.remotes.length) {
           const icon = node('span', 'ref-icon');
@@ -463,6 +464,11 @@ const menuItems = [
   ['merge', 'Merge into current branch…'], ['rebase', 'Rebase current branch on this Commit…'], ['reset', 'Reset current branch to this Commit…'], null,
   ['copy-hash', 'Copy Commit Hash to Clipboard'], ['copy-subject', 'Copy Commit Subject to Clipboard']
 ];
+const stashMenuItems = [
+  ['stash-apply', 'Apply Stash…'], ['stash-branch', 'Create Branch from Stash…'],
+  ['stash-pop', 'Pop Stash…'], ['stash-drop', 'Drop Stash…'], null,
+  ['copy-stash-name', 'Copy Stash Name to Clipboard'], ['copy-hash', 'Copy Stash Hash to Clipboard']
+];
 const workingMenuItems = [
   ['stash-working', 'Stash uncommitted changes…'], null,
   ['reset-working', 'Reset uncommitted changes…'],
@@ -483,11 +489,13 @@ async function copyText(text) {
 }
 function openMenu(commit, row, x, y) {
   if (state.busy || state.actionBusy || ui['action-dialog'].open) return;
+  const stashName = commit.stashName || state.refs.find(ref => ref.kind === 'stash' && ref.hash === commit.hash)?.name;
+  if (stashName) commit = { ...commit, stashName };
   menuAnchor = row;
   menuScrollTop = ui.history.scrollTop; menuScrollLeft = ui.history.scrollLeft;
   const menu = ui['context-menu']; menu.replaceChildren();
-  menu.setAttribute('aria-label', commit.workingTree ? 'Uncommitted changes actions' : 'Commit actions');
-  for (const item of commit.workingTree ? workingMenuItems : menuItems) {
+  menu.setAttribute('aria-label', commit.workingTree ? 'Uncommitted changes actions' : stashName ? 'Stash actions' : 'Commit actions');
+  for (const item of commit.workingTree ? workingMenuItems : stashName ? stashMenuItems : menuItems) {
     if (!item) { const separator = node('hr'); separator.setAttribute('role', 'separator'); menu.append(separator); continue; }
     const [action, label] = item, button = node('button', '', label);
     button.type = 'button'; button.setAttribute('role', 'menuitem'); button.tabIndex = -1;
@@ -495,7 +503,7 @@ function openMenu(commit, row, x, y) {
     button.addEventListener('click', async () => {
       closeMenu(true);
       if (action.startsWith('copy-')) {
-        try { await copyText(action === 'copy-hash' ? commit.hash : commit.subject); status(ui.status, 'Copied to clipboard.'); }
+        try { await copyText(action === 'copy-hash' ? commit.hash : action === 'copy-stash-name' ? stashName : commit.subject); status(ui.status, 'Copied to clipboard.'); }
         catch (error) { status(ui.status, error.message, true); }
       } else openAction(action, commit);
     });
@@ -526,9 +534,14 @@ window.addEventListener('blur', () => closeMenu());
 function openAction(action, commit) {
   if (state.busy || state.actionBusy) return;
   pendingAction = { action, ...(commit?.workingTree ? { expectedWorkingSnapshot: state.workingSnapshot } : commit ? { hash: commit.hash } : {}), expectedHead: state.head, expectedBranch: state.branch, workspaceId: ui.workspace.value, operation: state.operation };
-  const label = [...menuItems, ...workingMenuItems].find(item => item?.[0] === action)?.[1].replace(/…$/, '') || ({ continue: 'Continue ' + state.operation, abort: 'Abort ' + state.operation }[action]);
+  if (commit?.stashName) Object.assign(pendingAction, { stashName: commit.stashName, expectedWorkingSnapshot: state.workingSnapshot });
+  const label = [...menuItems, ...workingMenuItems, ...stashMenuItems].find(item => item?.[0] === action)?.[1].replace(/…$/, '') || ({ continue: 'Continue ' + state.operation, abort: 'Abort ' + state.operation }[action]);
   ui['action-title'].textContent = label;
   const descriptions = {
+    'stash-apply': 'Apply this stash to a clean working tree, keeping the stash. Conflicts may require resolution outside Git Graph.',
+    'stash-branch': 'Create and switch to a new branch at the stash’s original base, restore its staged and unstaged changes, then drop the stash only if restoration succeeds. Requires a clean working tree. On failure the new branch may remain checked out; the stash is kept.',
+    'stash-pop': 'Apply this stash to a clean working tree and drop it only if application succeeds. If conflicts occur, the stash is kept; resolve conflicts outside Git Graph.',
+    'stash-drop': 'Permanently remove this stash without applying it. Its saved changes will be lost. This cannot be undone through Git Graph.',
     'stash-working': 'Save staged, unstaged, and untracked files in a stash, then remove those changes from the working tree. Ignored files are not included. Submodule contents are not stashed.',
     'reset-working': 'Permanently discard staged and unstaged changes by resetting to HEAD. Untracked files or directories obstructing tracked paths may also be deleted. Other untracked and ignored files are kept. This cannot be undone by Git.',
     'clean-working': 'Permanently delete non-ignored untracked files and directories. Tracked files, ignored files, and nested Git repositories are kept. This cannot be undone by Git.',
@@ -544,8 +557,8 @@ function openAction(action, commit) {
     continue: 'Continue the in-progress operation after resolving conflicts and staging the resolved files outside Git Graph.',
     abort: 'Abort the in-progress operation and restore its starting state. Conflict-resolution edits will be lost.'
   };
-  ui['action-description'].textContent = (state.workspaces.find(w => w.id === ui.workspace.value)?.path || '') + '\nCurrent branch: ' + (state.branch || 'Detached HEAD') + (commit && !commit.workingTree ? '\nCommit: ' + commit.hash.slice(0, 12) + ' — ' + commit.subject : '') + '\n\n' + descriptions[action] + '\n\nGit hooks and commit/tag signing are disabled for these actions.';
-  ui['action-name-label'].hidden = !['tag', 'branch'].includes(action);
+  ui['action-description'].textContent = (state.workspaces.find(w => w.id === ui.workspace.value)?.path || '') + '\nCurrent branch: ' + (state.branch || 'Detached HEAD') + (commit && !commit.workingTree ? (commit.stashName ? '\nStash: ' + commit.stashName + ' — ' : '\nCommit: ') + commit.hash.slice(0, 12) + ' — ' + commit.subject : '') + '\n\n' + descriptions[action] + '\n\nGit hooks and commit/tag signing are disabled for these actions.';
+  ui['action-name-label'].hidden = !['tag', 'branch', 'stash-branch'].includes(action);
   ui['action-name'].required = !ui['action-name-label'].hidden;
   ui['action-name'].value = '';
   ui['action-mode-label'].hidden = action !== 'reset'; ui['action-mode'].value = 'soft';
